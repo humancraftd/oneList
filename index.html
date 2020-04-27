@@ -1,1 +1,380 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ugliest Groceries</title>
+  <link rel="stylesheet" href="oneList.css">
+  <script type="text/javascript" src="https://sdk.userbase.com/1/userbase.js"></script>
+</head>
+
+<body>
+  <!-- Loading View -->
+  <div id="loading-view">Loading...</div>
+
+  <!-- Auth View -->
+  <div id="auth-view">
+
+    <p>Login</p>
+    <form id="login-form">
+      <input id="login-username" type="text" required placeholder="Username">
+      <input id="login-password" type="password" required placeholder="Password">
+      <input type="submit" value="Sign in">
+    </form>
+    <div id="login-error"></div>
+
+    <p>Create an account</p>
+    <form id="signup-form">
+      <input id="signup-username" type="text" required placeholder="Username">
+      <input id="signup-password" type="password" required placeholder="Password">
+      <input type="submit" value="Create an account">
+    </form>
+    <div id="signup-error"></div>
+  </div>
+
+  <!-- Groceries View -->
+  <div id="groceries-view">
+    <span id="username"></span>
+    <input type="button" value="Logout" id="logout-button">
+    <div id="logout-error"></div>
+
+    <h1>Grocery List</h1>
+    <div id="groceries"></div>
+    <div id="db-loading">Loading groceries...</div>
+    <div id="db-error"></div>
+    <form id="add-aisle-form">
+      <input id="add-aisle" type="text" required placeholder="New Aisle" autocomplete="off")>
+      <input type="submit" value="Add">
+    </form>
+    <input type="button" value="Edit" id="deleteToggle-button">
+
+    <div id="add-groceries-error"></div>
+  </div>
+
+
+  <!-- application code -->
+  <!-- ////////////////////////////////////////////////////////////// -->
+
+
+  <script type="text/javascript">
+    userbase.init({ appId: 'e3e03a1b-022d-4456-8268-3aa15364b5e7' })
+      .then((session) => session.user ? showGroceries(session.user.username) : showAuth())
+      .catch(() => showAuth())
+      .finally(() => document.getElementById('loading-view').style.display = 'none')
+
+    function handleLogin(e) {
+      e.preventDefault()
+
+      const username = document.getElementById('login-username').value
+      const password = document.getElementById('login-password').value
+
+      userbase.signIn({ username, password, rememberMe: 'local' })
+        .then((user) => showGroceries(user.username))
+        .catch((e) => document.getElementById('login-error').innerHTML = e)
+    }
+
+    function handleSignUp(e) {
+      e.preventDefault()
+
+      const username = document.getElementById('signup-username').value
+      const password = document.getElementById('signup-password').value
+
+      userbase.signUp({ username, password, rememberMe: 'local' })
+        .then((user) => showGroceries(user.username))
+        .catch((e) => document.getElementById('signup-error').innerHTML = e)
+    }
+
+    function handleLogout() {
+      userbase.signOut()
+        .then(() => showAuth())
+        .catch((e) => document.getElementById('logout-error').innerText = e)
+    }
+
+    function showGroceries(username) {
+      document.getElementById('auth-view').style.display = 'none'
+      document.getElementById('groceries-view').style.display = 'block'
+
+      // reset the todos view
+      document.getElementById('username').innerHTML = username
+      document.getElementById('groceries').innerText = ''
+      document.getElementById('db-loading').style.display = 'block'
+      document.getElementById('db-error').innerText = ''
+
+      userbase.openDatabase({ databaseName: 'groceries', changeHandler })
+        .catch((e) => document.getElementById('db-error').innerText = e)
+    }
+
+    function showAuth() {
+      document.getElementById('groceries-view').style.display = 'none'
+      document.getElementById('auth-view').style.display = 'block'
+      document.getElementById('login-username').value = ''
+      document.getElementById('login-password').value = ''
+      document.getElementById('login-error').innerText = ''
+      document.getElementById('signup-username').value = ''
+      document.getElementById('signup-password').value = ''
+      document.getElementById('signup-error').innerText = ''
+    }
+
+    function showDelete() {
+      var x = document.getElementsByClassName("delete")
+
+      for (i = 0; i < x.length; i += 1) {
+        if (x[i].style.display === "none") {
+          x[i].style.display = "inline-block";
+        } else {
+          x[i].style.display = "none";
+        }
+      }
+    }
+
+    ////////////////////////////////
+    ////  Start changeHandler  /////
+    ////////////////////////////////
+
+    function changeHandler(list) {
+      document.getElementById('db-loading').style.display = 'none'
+
+      // put database in console
+      // console.log(JSON.stringify(list))
+
+      const aislesList = document.getElementById('groceries')
+      var flatList = [];
+
+      if (list.length === 0) {
+        aislesList.innerText = 'Empty'
+      } else {
+        // clear the list
+        aislesList.innerHTML = ''
+
+        function list_to_tree(flatList) {
+          var map = {}, node, roots = [], i
+          for (i = 0; i < flatList.length; i += 1) {
+            map[flatList[i].itemId] = i; // initialize the map
+            flatList[i].item.items = []; // initialize the items
+          }
+          for (i = 0; i < flatList.length; i += 1) {
+            node = flatList[i]
+            if (node.item.aisleName) {
+              roots.push(node);
+            } else {
+              flatList[map[node.item.aisleId]].item.items.push(node);
+            }
+          }
+          return roots;
+        }
+
+        // Nested List
+        var nestedList = list_to_tree(list)
+        // console.log(JSON.stringify(nestedList))
+
+        // render all the aisles
+        for (let i = 0; i < nestedList.length; i++) {
+
+          // build the aisle delete button
+          const aisleDelete = document.createElement('button')
+          aisleDelete.innerHTML = 'X'
+          aisleDelete.classList.add('delete')
+          aisleDelete.style.display = 'none'
+          aisleDelete.onclick = () => {
+            // Only delete if Aisle List is empty
+            if (nestedList[i].item.items.length == 0) {
+              userbase.deleteItem({
+                databaseName: 'groceries',
+                itemId: nestedList[i].itemId
+              })
+              .catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+            } else {
+              console.log('error')
+            }
+          }
+
+          // build the aisle label
+          const aisleLabel = document.createElement('label')
+          aisleLabel.innerHTML = nestedList[i].item.aisleName
+
+          // build the add item text box
+          const itemFormBox = document.createElement('input')
+          itemFormBox.id = 'add-item'
+          itemFormBox.setAttribute("type","text")
+          itemFormBox.setAttribute("placeholder","Item")
+          itemFormBox.setAttribute("autocomplete","off")
+
+          // build the add item submit button
+          const itemFormSubmit = document.createElement('input')
+          itemFormSubmit.setAttribute("type","submit")
+          itemFormSubmit.setAttribute("value","Add")
+          itemFormSubmit.onclick = (e) => {
+            e.preventDefault()
+
+            if (itemFormBox.value === '') {
+              console.log('error')
+            } else {
+              userbase.insertItem(
+                {
+                  databaseName: 'groceries',
+                  item: {
+                    'itemName': itemFormBox.value,
+                    'aisleId': nestedList[i].itemId,
+                    'need': false,
+                    'stores': {
+                      'storeId': null,
+                      'storeName': null
+                    }
+                  }
+                })
+                .then(() => itemFormBox.value = '')
+                .catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+            }
+          }
+
+          // build the whole add item form
+          const itemForm = document.createElement('form')
+          itemForm.appendChild(itemFormBox)
+          itemForm.appendChild(itemFormSubmit)
+          itemForm.id = 'add-item-form'
+
+          // append the aisle label and delete button
+          const aisleItem = document.createElement('div')
+          aisleItem.appendChild(aisleDelete)
+          aisleItem.appendChild(aisleLabel)
+          aisleItem.id = nestedList[i].item.aisleName
+
+          // append to the aisle stack
+          const aisleStack = document.createElement('div')
+          aisleStack.appendChild(aisleItem)
+
+          if (nestedList[i].item.items.length == 0) {
+
+            // build the item label
+            const itemLabel = document.createElement('label')
+            itemLabel.innerHTML = 'Empty'
+
+            // build the item list
+            const itemItem = document.createElement('div')
+            itemItem.appendChild(itemLabel)
+            itemItem.id = 'item-label'
+
+            // append to the item stack
+            const itemStack = document.createElement('div')
+            itemStack.appendChild(itemItem)
+            itemStack.appendChild(itemForm)
+            itemStack.id = 'item-stack'
+
+            aisleStack.appendChild(itemStack)
+          } else {
+
+            const itemStack = document.createElement('div')
+            for (let j = 0; j < nestedList[i].item.items.length; j++) {
+
+              // build the item delete button
+              const itemDelete = document.createElement('button')
+              itemDelete.innerHTML = 'X'
+              itemDelete.classList.add('delete')
+              itemDelete.style.display = 'none'
+              itemDelete.onclick = () => {
+                userbase.deleteItem({
+                  databaseName: 'groceries',
+                  itemId: nestedList[i].item.items[j].itemId
+                })
+                .catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+              }
+
+              // build the item radio button
+              const itemRadio = document.createElement('input')
+              itemRadio.setAttribute("type","checkbox")
+              itemRadio.checked = nestedList[i].item.items[j].item.need
+              itemRadio.onclick = () => {
+                if (itemRadio.checked == true) {
+                  // add need
+                  // console.log("need " + nestedList[i].item.items[j].item.itemName)
+                  userbase.updateItem({
+                    databaseName: 'groceries',
+                    itemId: nestedList[i].item.items[j].itemId,
+                    item: {
+                      'itemName': nestedList[i].item.items[j].item.itemName,
+                      'aisleId': nestedList[i].item.items[j].item.aisleId,
+                      'need': true,
+                      'stores': nestedList[i].item.items[j].item.stores
+                    }
+                  }).catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+                } else {
+                  // remove need
+                  userbase.updateItem({
+                    databaseName: 'groceries',
+                    itemId: nestedList[i].item.items[j].itemId,
+                    item: {
+                      'itemName': nestedList[i].item.items[j].item.itemName,
+                      'aisleId': nestedList[i].item.items[j].item.aisleId,
+                      'need': false,
+                      'stores': nestedList[i].item.items[j].item.stores
+                    }
+                  }).catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+                }
+
+              }
+
+              // build the item label
+              const itemLabel = document.createElement('label')
+              itemLabel.innerHTML = nestedList[i].item.items[j].item.itemName
+
+              // build the item list
+              const itemItem = document.createElement('div')
+              itemItem.appendChild(itemDelete)
+              itemItem.appendChild(itemRadio)
+              itemItem.appendChild(itemLabel)
+              itemItem.id = nestedList[i].item.items[j].item.itemName
+
+              // append to the item stack
+
+              itemStack.appendChild(itemItem)
+              itemStack.appendChild(itemForm)
+              itemStack.id = 'item-stack'
+
+              aisleStack.appendChild(itemStack)
+
+            }
+          }
+
+          aisleStack.id = 'aisle-stack'
+          aisleStack.setAttribute("draggable", "true")
+
+          aislesList.appendChild(aisleStack)
+        }
+      }
+    }
+
+    function addAisleHandler(e) {
+      e.preventDefault()
+
+      const aisleToAdd = document.getElementById('add-aisle').value
+      // console.log(aisleToAdd)
+
+      userbase.insertItem(
+        {
+          databaseName: 'groceries',
+          item: {
+            'aisleName': aisleToAdd,
+            'items': []
+          }
+        })
+        .then(() => document.getElementById('add-aisle').value = '')
+        .catch((e) => document.getElementById('add-groceries-error').innerHTML = e)
+    }
+
+    function onDragOver(e) {
+      e.preventDefault()
+
+      // document.getElementById('aisle-stack').style.backgroundColor = 'yellow'
+
+    }
+
+    document.getElementById('login-form').addEventListener('submit', handleLogin)
+    document.getElementById('signup-form').addEventListener('submit', handleSignUp)
+    document.getElementById('add-aisle-form').addEventListener('submit', addAisleHandler)
+    document.getElementById('logout-button').addEventListener('click', handleLogout)
+    document.getElementById('deleteToggle-button').addEventListener('click', showDelete)
+
+    document.getElementById('groceries-view').style.display = 'none'
+    document.getElementById('auth-view').style.display = 'none'
+  </script>
+</body>
+</html>
